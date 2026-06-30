@@ -35,3 +35,5 @@ The password is only used during setup. Home Assistant stores the Cognito refres
 ## Notes
 
 This integration is based on observed Ting app behavior as of June 30, 2026. Ting does not appear to publish this API, so endpoints, auth details, and realtime payloads may change.
+
+The HACS brand icon is included at `custom_components/ting/brand/icon.png`.
