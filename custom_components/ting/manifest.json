@@ -1,0 +1,12 @@
+{
+  "domain": "ting",
+  "name": "Ting",
+  "after_dependencies": [],
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/coffeexcoin/ting-hass",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/coffeexcoin/ting-hass/issues",
+  "requirements": ["msgpack>=1.0.0"],
+  "version": "0.1.0"
+}

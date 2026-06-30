@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+
+# Home Assistant local runtime
+.storage/
+deps/
+tts/
+home-assistant.log*
+home-assistant_v2.db*
+*.db-shm
+*.db-wal
+
+# Test and packaging artifacts
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp

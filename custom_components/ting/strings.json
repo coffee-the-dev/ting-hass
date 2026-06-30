@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ting",
+        "description": "Sign in with your Ting account.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ting authentication expired",
+        "description": "Sign in again with your Ting account.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "voltage": {
+        "name": "Voltage"
+      },
+      "hifi": {
+        "name": "Hi-Fi"
+      },
+      "voltage_high": {
+        "name": "Voltage high"
+      },
+      "voltage_low": {
+        "name": "Voltage low"
+      },
+      "last_update": {
+        "name": "Last update"
+      },
+      "fire_hazard_severity": {
+        "name": "Fire hazard severity"
+      },
+      "electrical_fire_hazard_level": {
+        "name": "Electrical fire hazard level"
+      },
+      "electrical_fire_hazard_status": {
+        "name": "Electrical fire hazard status"
+      },
+      "utility_fire_hazard_level": {
+        "name": "Utility fire hazard level"
+      },
+      "utility_fire_hazard_status": {
+        "name": "Utility fire hazard status"
+      }
+    }
+  }
+}
