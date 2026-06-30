@@ -59,26 +59,23 @@ _MONTH_NAMES = [
 ]
 
 
-def _pad_hex(value: int) -> str:
+def _pad_hex(value: int | str) -> str:
     """Return Cognito-compatible even-length hex."""
-    result = f"{value:x}"
+    result = f"{value:x}" if isinstance(value, int) else value
     if len(result) % 2 == 1:
         result = f"0{result}"
-    if result[0] in "89ABCDEFabcdef":
+    elif result[0] in "89ABCDEFabcdef":
         result = f"00{result}"
     return result
 
 
-def _hash_sha256(value: bytes) -> bytes:
-    return hashlib.sha256(value).digest()
-
-
-def _hash_hex(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+def _hash_sha256_hex(value: bytes) -> str:
+    result = hashlib.sha256(value).hexdigest()
+    return (64 - len(result)) * "0" + result
 
 
 def _hex_hash(hex_value: str) -> str:
-    return _hash_hex(bytes.fromhex(hex_value))
+    return _hash_sha256_hex(bytes.fromhex(hex_value))
 
 
 def _compute_hkdf(ikm: bytes, salt: bytes) -> bytes:
@@ -306,7 +303,7 @@ class _SrpSession:
 
     @property
     def public_a_hex(self) -> str:
-        return _pad_hex(self._large_a)
+        return f"{self._large_a:x}"
 
     def process_password_challenge(self, challenge: Mapping[str, Any]) -> dict[str, str]:
         internal_username = str(challenge.get("USERNAME", self.username))
@@ -326,12 +323,12 @@ class _SrpSession:
             raise TingAuthError("Invalid SRP scrambling parameter")
 
         username_password = f"{self.pool_name}{user_id}:{self.password}".encode()
-        username_password_hash = _hash_sha256(username_password)
-        x_value = int(_hash_hex(bytes.fromhex(salt_hex) + username_password_hash), 16)
+        username_password_hash = _hash_sha256_hex(username_password)
+        x_value = int(_hex_hash(_pad_hex(salt_hex) + username_password_hash), 16)
         g_mod_pow_xn = pow(_G, x_value, _N)
-        k_value = int(_hex_hash(f"00{_N_HEX}0{_G}"), 16)
-        int_value = (large_b - k_value * g_mod_pow_xn) % _N
-        exponent = (self._small_a + u_value * x_value) % _N
+        k_value = int(_hex_hash(f"00{_N_HEX}0{_G:x}"), 16)
+        int_value = large_b - k_value * g_mod_pow_xn
+        exponent = self._small_a + u_value * x_value
         s_value = pow(int_value, exponent, _N)
         hkdf = _compute_hkdf(bytes.fromhex(_pad_hex(s_value)), bytes.fromhex(_pad_hex(u_value)))
 
