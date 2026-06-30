@@ -55,7 +55,8 @@ class TingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 data = await _validate_input(self.hass, user_input)
-            except TingAuthError:
+            except TingAuthError as err:
+                _LOGGER.warning("Ting authentication failed during setup: %s", err)
                 errors["base"] = "invalid_auth"
             except TingConnectionError:
                 errors["base"] = "cannot_connect"
@@ -91,7 +92,8 @@ class TingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 data = await _validate_input(self.hass, user_input)
-            except TingAuthError:
+            except TingAuthError as err:
+                _LOGGER.warning("Ting authentication failed during reauth: %s", err)
                 errors["base"] = "invalid_auth"
             except TingConnectionError:
                 errors["base"] = "cannot_connect"

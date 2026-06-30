@@ -42,6 +42,21 @@ _N = int(_N_HEX, 16)
 _G = 2
 _INFO_BITS = b"Caldera Derived Key"
 _JWT_PADDING = "="
+_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_MONTH_NAMES = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
 
 
 def _pad_hex(value: int) -> str:
@@ -74,8 +89,13 @@ def _compute_hkdf(ikm: bytes, salt: bytes) -> bytes:
 
 def _aws_timestamp() -> str:
     now = datetime.now(timezone.utc)
-    day = str(now.day)
-    return now.strftime(f"%a %b {day} %H:%M:%S UTC %Y")
+    return (
+        f"{_WEEKDAY_NAMES[now.weekday()]} "
+        f"{_MONTH_NAMES[now.month - 1]} "
+        f"{now.day:d} "
+        f"{now.hour:02d}:{now.minute:02d}:{now.second:02d} UTC "
+        f"{now.year:d}"
+    )
 
 
 def _decode_jwt_unverified(token: str) -> dict[str, Any]:
@@ -172,12 +192,18 @@ class TingAuth:
             },
         )
 
-        if response.get("ChallengeName") != "PASSWORD_VERIFIER":
-            raise TingAuthError(f"Unexpected Cognito challenge: {response.get('ChallengeName')}")
+        challenge_name = response.get("ChallengeName")
+        _LOGGER.debug("Cognito initiate auth returned challenge: %s", challenge_name)
+        if challenge_name != "PASSWORD_VERIFIER":
+            raise TingAuthError(f"Unexpected Cognito challenge: {challenge_name}")
 
         challenge_parameters = response.get("ChallengeParameters")
         if not isinstance(challenge_parameters, dict):
             raise TingResponseError("Cognito password challenge did not include parameters")
+        _LOGGER.debug(
+            "Cognito password challenge parameter keys: %s",
+            sorted(challenge_parameters),
+        )
 
         challenge_response = srp.process_password_challenge(challenge_parameters)
         auth_response = await self._cognito_request(
@@ -283,10 +309,12 @@ class _SrpSession:
         return _pad_hex(self._large_a)
 
     def process_password_challenge(self, challenge: Mapping[str, Any]) -> dict[str, str]:
+        internal_username = str(challenge.get("USERNAME", self.username))
         user_id = str(challenge["USER_ID_FOR_SRP"])
         salt_hex = str(challenge["SALT"])
         srp_b_hex = str(challenge["SRP_B"])
-        secret_block = base64.b64decode(str(challenge["SECRET_BLOCK"]))
+        secret_block_b64 = str(challenge["SECRET_BLOCK"])
+        secret_block = base64.b64decode(secret_block_b64)
 
         large_b = int(srp_b_hex, 16)
         if large_b % _N == 0:
@@ -311,11 +339,11 @@ class _SrpSession:
         signature_payload = self.pool_name.encode() + user_id.encode() + secret_block + timestamp.encode()
         signature = base64.b64encode(hmac.new(hkdf, signature_payload, hashlib.sha256).digest()).decode()
 
-        # The proof is signed with USER_ID_FOR_SRP, but Cognito expects the
-        # challenge response USERNAME to be the original login identifier.
+        # The proof is signed with USER_ID_FOR_SRP, but Cognito can return a
+        # canonical USERNAME that must be echoed in the challenge response.
         return {
-            "USERNAME": self.username,
-            "PASSWORD_CLAIM_SECRET_BLOCK": base64.b64encode(secret_block).decode(),
+            "USERNAME": internal_username,
+            "PASSWORD_CLAIM_SECRET_BLOCK": secret_block_b64,
             "TIMESTAMP": timestamp,
             "PASSWORD_CLAIM_SIGNATURE": signature,
         }
