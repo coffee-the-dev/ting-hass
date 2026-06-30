@@ -229,6 +229,7 @@ class TingAuth:
 
         if response.status >= 400:
             message = data.get("message") or data.get("__type") or "Cognito authentication failed"
+            _LOGGER.warning("Cognito request %s failed: %s", target.rsplit(".", 1)[-1], message)
             _LOGGER.debug("Cognito error response: %s", data)
             raise TingAuthError(str(message))
         return data
@@ -310,8 +311,10 @@ class _SrpSession:
         signature_payload = self.pool_name.encode() + user_id.encode() + secret_block + timestamp.encode()
         signature = base64.b64encode(hmac.new(hkdf, signature_payload, hashlib.sha256).digest()).decode()
 
+        # The proof is signed with USER_ID_FOR_SRP, but Cognito expects the
+        # challenge response USERNAME to be the original login identifier.
         return {
-            "USERNAME": user_id,
+            "USERNAME": self.username,
             "PASSWORD_CLAIM_SECRET_BLOCK": base64.b64encode(secret_block).decode(),
             "TIMESTAMP": timestamp,
             "PASSWORD_CLAIM_SIGNATURE": signature,

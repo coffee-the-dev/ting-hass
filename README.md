@@ -5,6 +5,7 @@ Experimental HACS custom integration for Whisker Labs Ting monitors.
 ## What it exposes
 
 The integration signs in with the same Cognito user pool used by the Ting mobile app, discovers Ting devices from the account profile, and subscribes to Ting's realtime SignalR websocket stream.
+Realtime SignalR transport is handled with `pysignalr`.
 
 Realtime sensors:
 

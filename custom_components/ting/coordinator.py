@@ -7,7 +7,6 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import TingApi, TingDevice, extract_device_payloads
@@ -24,7 +23,6 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass, _LOGGER, name=f"Ting {device.serial_number}")
         self.device = device
         self._client = TingSignalRClient(
-            async_get_clientsession(hass),
             auth,
             station_id=device.serial_number,
             callback=self._async_handle_update,
