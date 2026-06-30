@@ -161,7 +161,7 @@ class TingRealtimeSensor(CoordinatorEntity[TingRealtimeCoordinator], TingSensor)
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.native_value is not None
+        return self.coordinator.last_update_success and self.coordinator.data is not None
 
     @property
     def native_value(self) -> Any:
@@ -207,7 +207,7 @@ class TingProfileSensor(CoordinatorEntity[TingProfileCoordinator], TingSensor):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.native_value is not None
+        return self.coordinator.last_update_success and self.coordinator.data is not None
 
     @property
     def native_value(self) -> Any:
