@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
+from datetime import datetime, timezone
 import logging
 from typing import Any
 
@@ -116,12 +117,12 @@ class TingSignalRClient:
 
     async def _handle_combo_binary_data(self, data: Mapping[str, Any]) -> None:
         parsed = {
-            "last_update": data.get("DataTimeUtc"),
+            "last_update": _timestamp(data.get("DataTimeUtc")),
             "voltage": _number(data.get("Voltage")),
             "voltage_high": _number(data.get("VoltageHi")),
             "voltage_low": _number(data.get("VoltageLo")),
             "hifi": _number(data.get("AveragePeaksMax")),
-            "raw": dict(data),
+            "raw": _json_safe_mapping(data),
         }
         result = self._callback(parsed)
         if asyncio.iscoroutine(result):
@@ -140,6 +141,65 @@ def _number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _timestamp(value: Any) -> str | None:
+    """Return a JSON-safe ISO timestamp from SignalR/protobuf values."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime):
+        timestamp = value
+    else:
+        timestamp = _protobuf_timestamp(value)
+    if timestamp is None:
+        return str(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc).isoformat()
+
+
+def _protobuf_timestamp(value: Any) -> datetime | None:
+    to_datetime = getattr(value, "ToDatetime", None)
+    if callable(to_datetime):
+        try:
+            return to_datetime(tzinfo=timezone.utc)
+        except TypeError:
+            return to_datetime().replace(tzinfo=timezone.utc)
+
+    seconds = _timestamp_part(value, "seconds")
+    nanoseconds = _timestamp_part(value, "nanoseconds")
+    if seconds is None:
+        seconds = _timestamp_part(value, "Seconds")
+    if nanoseconds is None:
+        nanoseconds = _timestamp_part(value, "Nanoseconds")
+    if seconds is None:
+        return None
+    return datetime.fromtimestamp(float(seconds) + (float(nanoseconds or 0) / 1_000_000_000), timezone.utc)
+
+
+def _timestamp_part(value: Any, key: str) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _json_safe_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
+    return {str(key): _json_safe_value(value) for key, value in data.items()}
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    if isinstance(value, Mapping):
+        return _json_safe_mapping(value)
+    if isinstance(value, list | tuple):
+        return [_json_safe_value(item) for item in value]
+    timestamp = _protobuf_timestamp(value)
+    if timestamp is not None:
+        return timestamp.astimezone(timezone.utc).isoformat()
+    return str(value)
 
 
 async def _sleep_or_stop(stop_event: asyncio.Event, delay: int) -> None:
