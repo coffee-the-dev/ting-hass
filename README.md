@@ -38,3 +38,13 @@ The password is only used during setup. Home Assistant stores the Cognito refres
 This integration is based on observed Ting app behavior as of June 30, 2026. Ting does not appear to publish this API, so endpoints, auth details, and realtime payloads may change.
 
 The HACS brand icon is included at `custom_components/ting/brand/icon.png`.
+
+## Local auth probe
+
+Run the standalone Cognito SRP auth probe from the repository root:
+
+```bash
+python3 scripts/ting_auth_probe.py -u you@example.com
+```
+
+The script prompts for the password, does not write credentials or tokens to disk, and prints only redacted token details on success.
