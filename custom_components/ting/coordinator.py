@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import TingApi, TingDevice, extract_device_payloads
 from .auth import TingAuth
@@ -26,8 +26,10 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             auth,
             station_id=device.serial_number,
             callback=self._async_handle_update,
+            stale_callback=self._async_handle_stale,
         )
-        self.async_set_updated_data({})
+        # No data yet: leave entities unavailable until the stream delivers.
+        self.last_update_success = False
 
     async def async_start(self) -> None:
         """Start the realtime stream."""
@@ -39,6 +41,14 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_handle_update(self, data: dict[str, Any]) -> None:
         self.async_set_updated_data(data)
+
+    async def _async_handle_stale(self, err: Exception) -> None:
+        """Mark entities unavailable while the stream is down.
+
+        Without this, entities hold their last value indefinitely during an
+        outage and history renders a fake flat line instead of a gap.
+        """
+        self.async_set_update_error(UpdateFailed(str(err)))
 
 
 class TingProfileCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
