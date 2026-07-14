@@ -17,3 +17,7 @@ class TingConnectionError(TingError):
 
 class TingResponseError(TingError):
     """Ting returned an unexpected response."""
+
+
+class TingStaleDataError(TingError):
+    """The realtime stream stopped delivering data."""

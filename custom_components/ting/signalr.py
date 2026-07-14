@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from datetime import datetime, timezone
 import logging
+import time
 from typing import Any
 
 from pysignalr.client import SignalRClient
@@ -15,10 +16,21 @@ from pysignalr.protocol.messagepack import MessagepackProtocol
 
 from .auth import TingAuth
 from .const import TING_COMBO_BINARY_DATA, TING_SIGNALR_WS_URL
+from .exceptions import TingStaleDataError
 
 _LOGGER = logging.getLogger(__name__)
 
 TingRealtimeCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
+TingStaleCallback = Callable[[Exception], Awaitable[None] | None]
+
+# Ting streams roughly one sample per second. If nothing arrives for this many
+# seconds the subscription is considered dead even when the websocket still
+# answers pings, and the client tears down and reconnects from scratch.
+STALE_DATA_TIMEOUT = 120.0
+# How often the watchdog checks for staleness.
+WATCHDOG_INTERVAL = 15.0
+# Cap for exponential reconnect backoff.
+MAX_BACKOFF = 60
 
 
 class TingSignalRClient:
@@ -30,28 +42,46 @@ class TingSignalRClient:
         *,
         station_id: str,
         callback: TingRealtimeCallback,
+        stale_callback: TingStaleCallback | None = None,
     ) -> None:
         self._auth = auth
         self._station_id = station_id
         self._callback = callback
+        self._stale_callback = stale_callback
         self._stopped = asyncio.Event()
         self._client: SignalRClient | None = None
+        self._last_message = 0.0
+        self._had_data = False
+        self._init_error: str | None = None
+        self._was_connected = False
 
     async def async_run(self) -> None:
         """Run until stopped, reconnecting after transient failures."""
         backoff = 1
         while not self._stopped.is_set():
+            self._had_data = False
             try:
                 await self._run_once()
-                backoff = 1
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001 - keep realtime loop alive
                 if self._stopped.is_set():
                     return
-                _LOGGER.debug("Ting SignalR connection failed for %s: %s", self._station_id, err)
-                await _sleep_or_stop(self._stopped, backoff)
-                backoff = min(backoff * 2, 60)
+                self._log_connection_issue(err)
+                await self._notify_stale(err)
+            else:
+                if self._stopped.is_set():
+                    return
+                # client.run() returned without raising: the connection ended.
+                _LOGGER.warning(
+                    "Ting SignalR stream for %s ended unexpectedly; reconnecting",
+                    self._station_id,
+                )
+                await self._notify_stale(TingStaleDataError("SignalR stream ended"))
+            # Reset backoff only if the last connection actually delivered data;
+            # otherwise keep escalating so a broken endpoint is not hammered.
+            backoff = 1 if self._had_data else min(backoff * 2, MAX_BACKOFF)
+            await _sleep_or_stop(self._stopped, backoff)
 
     async def async_stop(self) -> None:
         """Request the SignalR loop to stop."""
@@ -63,10 +93,7 @@ class TingSignalRClient:
                     "UnInitializeStreaming",
                     [self._station_data(), self._auth.api_key, self._auth.user_id],
                 )
-        transport = getattr(client, "_transport", None)
-        ws = getattr(transport, "_ws", None)
-        if ws is not None:
-            await ws.close()
+        await self._close_ws(client)
 
     async def _run_once(self) -> None:
         await self._auth.async_ensure_tokens()
@@ -84,12 +111,20 @@ class TingSignalRClient:
         # pysignalr supports this at the transport layer but not its public constructor.
         client._transport._skip_negotiation = True  # noqa: SLF001
         self._client = client
+        self._init_error = None
+        self._last_message = time.monotonic()
 
         async def on_open() -> None:
+            self._last_message = time.monotonic()
+            if not self._was_connected:
+                _LOGGER.info("Ting SignalR connected for %s", self._station_id)
+            else:
+                _LOGGER.info("Ting SignalR reconnected for %s", self._station_id)
+            self._was_connected = True
             await client.send(
                 "InitializeStreaming",
                 [self._station_data(), self._auth.api_key, self._auth.user_id],
-                on_invocation=_log_completion,
+                on_invocation=self._on_init_completion,
             )
 
         async def on_update(arguments: list[Any]) -> None:
@@ -98,16 +133,91 @@ class TingSignalRClient:
             data = arguments[0]
             if not isinstance(data, Mapping):
                 return
+            self._last_message = time.monotonic()
+            self._had_data = True
             await self._handle_combo_binary_data(data)
 
         client.on_open(on_open)
         client.on("updateComboBinaryData", on_update)
         client.on_error(_log_completion)
 
+        run_task = asyncio.create_task(client.run(), name=f"ting_signalr_run_{self._station_id}")
+        watchdog_task = asyncio.create_task(
+            self._watchdog(), name=f"ting_signalr_watchdog_{self._station_id}"
+        )
         try:
-            await client.run()
+            done, pending = await asyncio.wait(
+                {run_task, watchdog_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+            for task in done:
+                exc = task.exception()
+                if exc is not None:
+                    raise exc
         finally:
+            await self._close_ws(client)
             self._client = None
+
+    async def _watchdog(self) -> None:
+        """Force a reconnect when the data stream goes silent."""
+        while not self._stopped.is_set():
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+            if self._init_error is not None:
+                raise TingStaleDataError(
+                    f"Ting streaming subscription rejected: {self._init_error}"
+                )
+            silent_for = time.monotonic() - self._last_message
+            if silent_for > STALE_DATA_TIMEOUT:
+                raise TingStaleDataError(
+                    f"No Ting data for {silent_for:.0f}s (limit {STALE_DATA_TIMEOUT:.0f}s)"
+                )
+
+    async def _on_init_completion(self, message: CompletionMessage) -> None:
+        if message.error:
+            _LOGGER.warning(
+                "Ting InitializeStreaming failed for %s: %s",
+                self._station_id,
+                message.error,
+            )
+            # Surface to the watchdog so the connection is torn down and retried.
+            self._init_error = str(message.error)
+
+    async def _close_ws(self, client: SignalRClient | None) -> None:
+        transport = getattr(client, "_transport", None)
+        ws = getattr(transport, "_ws", None)
+        if ws is not None:
+            with suppress(Exception):
+                await ws.close()
+
+    def _log_connection_issue(self, err: Exception) -> None:
+        if isinstance(err, TingStaleDataError):
+            _LOGGER.warning(
+                "Ting SignalR stream stale for %s: %s; reconnecting",
+                self._station_id,
+                err,
+            )
+        elif self._was_connected:
+            _LOGGER.warning(
+                "Ting SignalR connection lost for %s: %s (%s); reconnecting",
+                self._station_id,
+                err,
+                type(err).__name__,
+            )
+        else:
+            # Never connected yet: keep retry noise at debug.
+            _LOGGER.debug(
+                "Ting SignalR connection failed for %s: %s", self._station_id, err
+            )
+
+    async def _notify_stale(self, err: Exception) -> None:
+        if self._stale_callback is None:
+            return
+        result = self._stale_callback(err)
+        if asyncio.iscoroutine(result):
+            await result
 
     def _station_data(self) -> dict[str, str]:
         return {
