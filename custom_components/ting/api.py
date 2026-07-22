@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
 import logging
 from typing import Any
@@ -26,7 +26,6 @@ class TingDevice:
     model: str | None = None
     firmware: str | None = None
     site_name: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
 class TingApi:
@@ -96,7 +95,6 @@ def extract_devices(user_data: Mapping[str, Any], default_serial: str | None = N
             model=model,
             firmware=firmware,
             site_name=_site_name(parents),
-            raw=dict(item),
         )
 
     if default_serial and default_serial not in found:
@@ -108,9 +106,16 @@ def extract_devices(user_data: Mapping[str, Any], default_serial: str | None = N
     return list(found.values())
 
 
-def extract_device_payloads(user_data: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return raw device payloads keyed by serial number."""
-    payloads: dict[str, dict[str, Any]] = {}
+def extract_device_diagnostics(user_data: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return normalized, non-personal diagnostics keyed by device serial."""
+    sites: dict[str, bool] = {}
+    for item, _parents in _walk_dicts(user_data):
+        site_id = _identifier(item.get("id"))
+        power_quality_hazard = item.get("isPowerQualityHazard")
+        if site_id is not None and isinstance(power_quality_hazard, bool):
+            sites[site_id] = power_quality_hazard
+
+    diagnostics: dict[str, dict[str, Any]] = {}
     for item, _parents in _walk_dicts(user_data):
         serial = _first_str(
             item,
@@ -120,9 +125,30 @@ def extract_device_payloads(user_data: Mapping[str, Any]) -> dict[str, dict[str,
             "stationId",
             "StationId",
         )
-        if serial:
-            payloads[serial] = dict(item)
-    return payloads
+        if not serial:
+            continue
+
+        device_diagnostics = diagnostics.setdefault(serial, {})
+
+        fire_hazard = item.get("isFire")
+        if isinstance(fire_hazard, bool):
+            device_diagnostics["fire_hazard"] = fire_hazard
+
+        fire_hazard_status = item.get("fireHazardStatus")
+        if isinstance(fire_hazard_status, Mapping):
+            learning_mode = fire_hazard_status.get("learningMode")
+            if isinstance(learning_mode, bool):
+                device_diagnostics["learning_mode"] = learning_mode
+
+            hazard_message = fire_hazard_status.get("message")
+            if isinstance(hazard_message, str):
+                device_diagnostics["hazard_message"] = hazard_message
+
+        site_id = _identifier(item.get("siteId"))
+        if site_id is not None and site_id in sites:
+            device_diagnostics["power_quality_hazard"] = sites[site_id]
+
+    return diagnostics
 
 
 def _walk_dicts(value: Any, parents: tuple[Mapping[str, Any], ...] = ()) -> Iterable[tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...]]]:
@@ -141,8 +167,16 @@ def _first_str(item: Mapping[str, Any], *keys: str) -> str | None:
         value = item.get(key)
         if isinstance(value, str) and value:
             return value
-        if isinstance(value, int | float):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return str(value)
+    return None
+
+
+def _identifier(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
     return None
 
 

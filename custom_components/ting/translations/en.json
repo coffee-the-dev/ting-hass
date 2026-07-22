@@ -29,6 +29,17 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "fire_hazard": {
+        "name": "Fire hazard"
+      },
+      "power_quality_hazard": {
+        "name": "Power quality hazard"
+      },
+      "learning_mode": {
+        "name": "Learning mode"
+      }
+    },
     "sensor": {
       "voltage": {
         "name": "Voltage"
@@ -45,20 +56,8 @@
       "last_update": {
         "name": "Last update"
       },
-      "fire_hazard_severity": {
-        "name": "Fire hazard severity"
-      },
-      "electrical_fire_hazard_level": {
-        "name": "Electrical fire hazard level"
-      },
-      "electrical_fire_hazard_status": {
-        "name": "Electrical fire hazard status"
-      },
-      "utility_fire_hazard_level": {
-        "name": "Utility fire hazard level"
-      },
-      "utility_fire_hazard_status": {
-        "name": "Utility fire hazard status"
+      "hazard_message": {
+        "name": "Hazard message"
       }
     }
   }

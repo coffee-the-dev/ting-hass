@@ -78,37 +78,10 @@ REALTIME_SENSORS: tuple[TingSensorEntityDescription, ...] = (
 
 PROFILE_SENSORS: tuple[TingSensorEntityDescription, ...] = (
     TingSensorEntityDescription(
-        key="fire_hazard_severity",
-        translation_key="fire_hazard_severity",
+        key="hazard_message",
+        translation_key="hazard_message",
         entity_category=EntityCategory.DIAGNOSTIC,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda data: _nested(data, "fireHazardStatus", "hazardSeverityLevel"),
-    ),
-    TingSensorEntityDescription(
-        key="electrical_fire_hazard_level",
-        translation_key="electrical_fire_hazard_level",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda data: _nested(data, "fireHazardStatus", "efhStatus", "level"),
-    ),
-    TingSensorEntityDescription(
-        key="electrical_fire_hazard_status",
-        translation_key="electrical_fire_hazard_status",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: _nested(data, "fireHazardStatus", "efhStatus", "status"),
-    ),
-    TingSensorEntityDescription(
-        key="utility_fire_hazard_level",
-        translation_key="utility_fire_hazard_level",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda data: _nested(data, "fireHazardStatus", "ufhStatus", "level"),
-    ),
-    TingSensorEntityDescription(
-        key="utility_fire_hazard_status",
-        translation_key="utility_fire_hazard_status",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: _nested(data, "fireHazardStatus", "ufhStatus", "status"),
+        value_fn=lambda data: data.get("hazard_message"),
     ),
 )
 
@@ -207,13 +180,18 @@ class TingProfileSensor(CoordinatorEntity[TingProfileCoordinator], TingSensor):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success and self.coordinator.data is not None
+        data = (self.coordinator.data or {}).get(self._device.serial_number)
+        return (
+            self.coordinator.last_update_success
+            and isinstance(data, dict)
+            and isinstance(data.get(self.entity_description.key), str)
+        )
 
     @property
     def native_value(self) -> Any:
         """Return the current sensor value."""
         return self.entity_description.value_fn(
-            (self.coordinator.data or {}).get(self._device.serial_number, self._device.raw)
+            (self.coordinator.data or {}).get(self._device.serial_number, {})
         )
 
 
@@ -228,12 +206,3 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def _nested(data: dict[str, Any], *keys: str) -> Any:
-    current: Any = data
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current
