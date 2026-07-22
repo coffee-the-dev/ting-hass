@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TingApi, TingDevice, extract_devices
@@ -18,6 +19,14 @@ from .coordinator import TingProfileCoordinator, TingRealtimeCoordinator
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEPRECATED_PROFILE_UNIQUE_ID_SUFFIXES = (
+    "_fire_hazard_severity",
+    "_electrical_fire_hazard_level",
+    "_electrical_fire_hazard_status",
+    "_utility_fire_hazard_level",
+    "_utility_fire_hazard_status",
+)
 
 
 @dataclass
@@ -63,6 +72,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         profile_coordinator=profile_coordinator,
         coordinators=coordinators,
     )
+
+    entity_registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.unique_id.endswith(_DEPRECATED_PROFILE_UNIQUE_ID_SUFFIXES):
+            entity_registry.async_remove(entity.entity_id)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
