@@ -6,7 +6,7 @@ DOMAIN = "ting"
 
 CONF_REFRESH_TOKEN = "refresh_token"
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["binary_sensor", "sensor"]
 
 COGNITO_REGION = "us-east-1"
 COGNITO_USER_POOL_ID = "us-east-1_trW4gH661"

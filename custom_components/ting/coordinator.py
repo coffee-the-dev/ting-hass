@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import TingApi, TingDevice, extract_device_payloads
+from .api import TingApi, TingDevice, extract_device_diagnostics
 from .auth import TingAuth
 from .signalr import TingSignalRClient
 
@@ -67,7 +67,7 @@ class TingProfileCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             update_interval=timedelta(minutes=5),
         )
         self._api = api
-        self.async_set_updated_data(extract_device_payloads(initial_user_data))
+        self.async_set_updated_data(extract_device_diagnostics(initial_user_data))
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        return extract_device_payloads(await self._api.async_get_user())
+        return extract_device_diagnostics(await self._api.async_get_user())

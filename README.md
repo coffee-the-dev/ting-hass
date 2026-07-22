@@ -15,13 +15,20 @@ Realtime sensors:
 - Voltage low
 - Last update
 
-REST profile diagnostic sensors, refreshed every 5 minutes:
+REST profile safety entities, refreshed every 5 minutes:
 
-- Fire hazard severity
-- Electrical fire hazard level
-- Electrical fire hazard status
-- Utility fire hazard level
-- Utility fire hazard status
+- Fire hazard (binary sensor)
+- Power quality hazard (binary sensor)
+
+REST profile diagnostic entities, refreshed every 5 minutes:
+
+- Learning mode (binary sensor)
+- Hazard message (sensor)
+
+Profile responses are normalized to these four values. Full device, site, and
+account profile payloads are not stored as coordinator data. If Ting omits a
+value or returns it with an unexpected type, the corresponding entity is
+unavailable rather than reporting a misleading safe state.
 
 ## Install with HACS
 
