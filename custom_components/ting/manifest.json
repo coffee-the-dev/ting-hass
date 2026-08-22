@@ -4,9 +4,9 @@
   "after_dependencies": [],
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/coffeexcoin/ting-hass",
+  "documentation": "https://github.com/coffee-the-dev/ting-hass",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/coffeexcoin/ting-hass/issues",
+  "issue_tracker": "https://github.com/coffee-the-dev/ting-hass/issues",
   "requirements": ["pysignalr==1.3.2"],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

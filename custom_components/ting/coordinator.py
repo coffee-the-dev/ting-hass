@@ -11,7 +11,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import TingApi, TingDevice, extract_device_diagnostics
 from .auth import TingAuth
+from .const import REALTIME_PUBLISH_INTERVAL
 from .signalr import TingSignalRClient
+from .throttle import LatestValueThrottle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +30,9 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             callback=self._async_handle_update,
             stale_callback=self._async_handle_stale,
         )
+        self._realtime_throttle = LatestValueThrottle(
+            REALTIME_PUBLISH_INTERVAL, self.async_set_updated_data
+        )
         # No data yet: leave entities unavailable until the stream delivers.
         self.last_update_success = False
 
@@ -37,10 +42,13 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_stop(self) -> None:
         """Stop the realtime stream."""
-        await self._client.async_stop()
+        try:
+            await self._client.async_stop()
+        finally:
+            self._realtime_throttle.cancel()
 
     async def _async_handle_update(self, data: dict[str, Any]) -> None:
-        self.async_set_updated_data(data)
+        self._realtime_throttle.submit(data)
 
     async def _async_handle_stale(self, err: Exception) -> None:
         """Mark entities unavailable while the stream is down.
@@ -48,6 +56,7 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Without this, entities hold their last value indefinitely during an
         outage and history renders a fake flat line instead of a gap.
         """
+        self._realtime_throttle.cancel()
         self.async_set_update_error(UpdateFailed(str(err)))
 
 
