@@ -22,3 +22,7 @@ ATTR_VOLTAGE_HI = "voltage_high"
 ATTR_VOLTAGE_LO = "voltage_low"
 ATTR_HIFI = "hifi"
 ATTR_LAST_UPDATE = "last_update"
+
+# Ting sends about four realtime samples per second. Home Assistant's state
+# machine and recorder do not benefit from that display-oriented frequency.
+REALTIME_PUBLISH_INTERVAL = 5.0

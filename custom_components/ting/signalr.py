@@ -7,11 +7,14 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from datetime import datetime, timezone
 import logging
+import ssl
 import time
 from typing import Any
 
+import msgpack
+import orjson
 from pysignalr.client import SignalRClient
-from pysignalr.messages import CompletionMessage
+from pysignalr.messages import CompletionMessage, HandshakeRequestMessage
 from pysignalr.protocol.messagepack import MessagepackProtocol
 
 from .auth import TingAuth
@@ -23,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 TingRealtimeCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 TingStaleCallback = Callable[[Exception], Awaitable[None] | None]
 
-# Ting streams roughly one sample per second. If nothing arrives for this many
+# Ting streams about four samples per second. If nothing arrives for this many
 # seconds the subscription is considered dead even when the websocket still
 # answers pings, and the client tears down and reconnects from scratch.
 STALE_DATA_TIMEOUT = 120.0
@@ -31,6 +34,76 @@ STALE_DATA_TIMEOUT = 120.0
 WATCHDOG_INTERVAL = 15.0
 # Cap for exponential reconnect backoff.
 MAX_BACKOFF = 60
+
+_MESSAGEPACK_ATTRIBUTE_PRIORITY = (
+    "type_",
+    "type",
+    "headers",
+    "invocation_id",
+    "target",
+    "arguments",
+    "item",
+    "result_kind",
+    "result",
+    "stream_ids",
+)
+
+
+class TingMessagepackProtocol(MessagepackProtocol):
+    """Backport MessagePack framing fixes while Home Assistant pins pysignalr 1.3.0."""
+
+    def encode(self, message: Any) -> bytes:
+        """Encode the JSON handshake or a MessagePack hub message."""
+        if isinstance(message, HandshakeRequestMessage):
+            return orjson.dumps(message.dump()) + b"\x1e"
+
+        raw_message: list[Any] = []
+        for attr in _MESSAGEPACK_ATTRIBUTE_PRIORITY:
+            if not hasattr(message, attr):
+                continue
+            value = getattr(message, attr)
+            if attr == "type_":
+                value = value.value
+            elif attr == "headers":
+                value = value or {}
+            elif attr == "stream_ids":
+                value = value or []
+            raw_message.append(value)
+
+        encoded_message = msgpack.packb(raw_message)
+        return self._to_varint(len(encoded_message)) + encoded_message
+
+    def decode(self, raw_message: str | bytes) -> list[Any]:
+        """Decode one or more correctly varint-framed MessagePack messages."""
+        data = raw_message.encode() if isinstance(raw_message, str) else raw_message
+        messages: list[Any] = []
+        offset = 0
+        while offset < len(data):
+            length, offset = self._from_varint(data, offset)
+            values = msgpack.unpackb(data[offset : offset + length])
+            offset += length
+            messages.append(self.parse_message(values))
+        return messages
+
+    @staticmethod
+    def parse_message(seq_message: list[Any]) -> Any:
+        """Tolerate invocation messages that omit the optional stream ID list."""
+        if seq_message and seq_message[0] == 1 and len(seq_message) == 5:
+            seq_message = [*seq_message, []]
+        return MessagepackProtocol.parse_message(seq_message)
+
+    @staticmethod
+    def _from_varint(data: bytes, offset: int) -> tuple[int, int]:
+        """Decode a SignalR variable-length frame size."""
+        length = 0
+        shift = 0
+        while True:
+            byte = data[offset]
+            offset += 1
+            length |= (byte & 0x7F) << shift
+            if not byte & 0x80:
+                return length, offset
+            shift += 7
 
 
 class TingSignalRClient:
@@ -54,6 +127,7 @@ class TingSignalRClient:
         self._had_data = False
         self._init_error: str | None = None
         self._was_connected = False
+        self._ssl_context: ssl.SSLContext | None = None
 
     async def async_run(self) -> None:
         """Run until stopped, reconnecting after transient failures."""
@@ -97,15 +171,18 @@ class TingSignalRClient:
 
     async def _run_once(self) -> None:
         await self._auth.async_ensure_tokens()
+        if self._ssl_context is None:
+            self._ssl_context = await asyncio.to_thread(ssl.create_default_context)
         client = SignalRClient(
             url=TING_SIGNALR_WS_URL,
-            protocol=MessagepackProtocol(),
+            protocol=TingMessagepackProtocol(),
             headers={
                 "Origin": "ionic://localhost",
                 "User-Agent": "Home Assistant Ting Integration",
             },
             ping_interval=30,
             retry_count=1,
+            ssl=self._ssl_context,
         )
         # Ting's app connects websocket-only with SignalR skipNegotiation.
         # pysignalr supports this at the transport layer but not its public constructor.
