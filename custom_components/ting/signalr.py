@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from datetime import datetime, timezone
 import logging
+import ssl
 import time
 from typing import Any
 
@@ -23,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 TingRealtimeCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 TingStaleCallback = Callable[[Exception], Awaitable[None] | None]
 
-# Ting streams roughly one sample per second. If nothing arrives for this many
+# Ting streams about four samples per second. If nothing arrives for this many
 # seconds the subscription is considered dead even when the websocket still
 # answers pings, and the client tears down and reconnects from scratch.
 STALE_DATA_TIMEOUT = 120.0
@@ -54,6 +55,7 @@ class TingSignalRClient:
         self._had_data = False
         self._init_error: str | None = None
         self._was_connected = False
+        self._ssl_context: ssl.SSLContext | None = None
 
     async def async_run(self) -> None:
         """Run until stopped, reconnecting after transient failures."""
@@ -97,6 +99,8 @@ class TingSignalRClient:
 
     async def _run_once(self) -> None:
         await self._auth.async_ensure_tokens()
+        if self._ssl_context is None:
+            self._ssl_context = await asyncio.to_thread(ssl.create_default_context)
         client = SignalRClient(
             url=TING_SIGNALR_WS_URL,
             protocol=MessagepackProtocol(),
@@ -106,6 +110,7 @@ class TingSignalRClient:
             },
             ping_interval=30,
             retry_count=1,
+            ssl=self._ssl_context,
         )
         # Ting's app connects websocket-only with SignalR skipNegotiation.
         # pysignalr supports this at the transport layer but not its public constructor.

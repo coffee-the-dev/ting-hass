@@ -37,9 +37,10 @@ def test_throttle_cancel_discards_pending_value() -> None:
         throttle.submit(1)
         throttle.submit(2)
         throttle.cancel()
+        throttle.submit(3)
 
         await asyncio.sleep(0.04)
-        assert emitted == [1]
+        assert emitted == [1, 3]
 
     asyncio.run(run())
 

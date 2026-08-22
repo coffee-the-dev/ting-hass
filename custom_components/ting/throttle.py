@@ -39,11 +39,12 @@ class LatestValueThrottle(Generic[_T]):
             self._handle = loop.call_later(delay, self._emit_scheduled)
 
     def cancel(self) -> None:
-        """Discard a pending value and cancel its timer."""
+        """Discard a pending value and reset the delivery window."""
         if self._handle is not None:
             self._handle.cancel()
             self._handle = None
         self._pending = None
+        self._last_emit = None
 
     def _emit_scheduled(self) -> None:
         self._handle = None
