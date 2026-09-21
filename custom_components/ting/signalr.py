@@ -226,25 +226,26 @@ class TingSignalRClient:
             self._watchdog(), name=f"ting_signalr_watchdog_{self._station_id}"
         )
         try:
-            done, pending = await asyncio.wait(
+            done, _ = await asyncio.wait(
                 {run_task, watchdog_task}, return_when=asyncio.FIRST_COMPLETED
             )
-            for task in pending:
-                task.cancel()
-                with suppress(asyncio.CancelledError, Exception):
-                    await task
             for task in done:
-                exc = task.exception()
-                if exc is not None:
-                    raise exc
+                task.result()
         finally:
+            # asyncio.wait does not cancel its children when this task is
+            # cancelled by Home Assistant during unload or shutdown.
+            for task in (run_task, watchdog_task):
+                task.cancel()
+            await asyncio.gather(run_task, watchdog_task, return_exceptions=True)
             await self._close_ws(client)
             self._client = None
 
     async def _watchdog(self) -> None:
         """Force a reconnect when the data stream goes silent."""
         while not self._stopped.is_set():
-            await asyncio.sleep(WATCHDOG_INTERVAL)
+            await _sleep_or_stop(self._stopped, WATCHDOG_INTERVAL)
+            if self._stopped.is_set():
+                return
             if self._init_error is not None:
                 raise TingStaleDataError(
                     f"Ting streaming subscription rejected: {self._init_error}"
@@ -392,7 +393,7 @@ def _json_safe_value(value: Any) -> Any:
     return str(value)
 
 
-async def _sleep_or_stop(stop_event: asyncio.Event, delay: int) -> None:
+async def _sleep_or_stop(stop_event: asyncio.Event, delay: float) -> None:
     try:
         await asyncio.wait_for(stop_event.wait(), timeout=delay)
     except TimeoutError:
