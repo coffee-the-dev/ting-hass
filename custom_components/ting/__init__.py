@@ -61,7 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     coordinators = {
-        device.serial_number: TingRealtimeCoordinator(hass, auth, device)
+        device.serial_number: TingRealtimeCoordinator(hass, entry, auth, device)
         for device in devices
     }
     profile_coordinator = TingProfileCoordinator(hass, api, user_data)

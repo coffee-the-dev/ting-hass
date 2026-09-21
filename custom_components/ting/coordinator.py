@@ -6,12 +6,15 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import TingApi, TingDevice, extract_device_diagnostics
 from .auth import TingAuth
 from .const import REALTIME_PUBLISH_INTERVAL
+from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 from .signalr import TingSignalRClient
 from .throttle import LatestValueThrottle
 
@@ -21,8 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Push coordinator for one Ting device."""
 
-    def __init__(self, hass: HomeAssistant, auth: TingAuth, device: TingDevice) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, auth: TingAuth, device: TingDevice
+    ) -> None:
         super().__init__(hass, _LOGGER, name=f"Ting {device.serial_number}")
+        self._entry = entry
         self.device = device
         self._client = TingSignalRClient(
             auth,
@@ -38,7 +44,11 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_start(self) -> None:
         """Start the realtime stream."""
-        await self._client.async_run()
+        try:
+            await self._client.async_run()
+        except TingAuthError as err:
+            await self._async_handle_stale(err)
+            self._entry.async_start_reauth(self.hass)
 
     async def async_stop(self) -> None:
         """Stop the realtime stream."""
@@ -79,4 +89,9 @@ class TingProfileCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.async_set_updated_data(extract_device_diagnostics(initial_user_data))
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        return extract_device_diagnostics(await self._api.async_get_user())
+        try:
+            return extract_device_diagnostics(await self._api.async_get_user())
+        except TingAuthError as err:
+            raise ConfigEntryAuthFailed("Ting authentication failed") from err
+        except (TingConnectionError, TingResponseError) as err:
+            raise UpdateFailed(f"Could not update Ting profile: {err}") from err

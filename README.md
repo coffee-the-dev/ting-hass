@@ -49,6 +49,16 @@ This integration is based on observed Ting app behavior as of June 30, 2026. Tin
 
 The HACS brand icon is included at `custom_components/ting/brand/icon.png`.
 
+## Tests
+
+Run the unit and Home Assistant lifecycle tests with Python 3.14:
+
+```bash
+uv run --no-project --with-requirements requirements-test.txt python -m pytest -q
+```
+
+Cloud responses are mocked; tests do not require a Ting account.
+
 ## Local auth probe
 
 Run the standalone Cognito SRP auth probe from the repository root:

@@ -19,7 +19,7 @@ from pysignalr.protocol.messagepack import MessagepackProtocol
 
 from .auth import TingAuth
 from .const import TING_COMBO_BINARY_DATA, TING_SIGNALR_WS_URL
-from .exceptions import TingStaleDataError
+from .exceptions import TingAuthError, TingStaleDataError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,6 +137,9 @@ class TingSignalRClient:
             try:
                 await self._run_once()
             except asyncio.CancelledError:
+                raise
+            except TingAuthError:
+                # A revoked refresh token needs user action, not reconnects.
                 raise
             except Exception as err:  # noqa: BLE001 - keep realtime loop alive
                 if self._stopped.is_set():
