@@ -15,6 +15,10 @@ class TingConnectionError(TingError):
     """Ting service connection failed."""
 
 
+class TingRateLimitError(TingConnectionError):
+    """Ting temporarily throttled requests; retry without reauthentication."""
+
+
 class TingResponseError(TingError):
     """Ting returned an unexpected response."""
 

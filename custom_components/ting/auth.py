@@ -16,9 +16,22 @@ from typing import Any
 from aiohttp import ClientError, ClientSession
 
 from .const import COGNITO_CLIENT_ID, COGNITO_ENDPOINT, COGNITO_USER_POOL_ID
-from .exceptions import TingAuthError, TingConnectionError, TingResponseError
+from .exceptions import (
+    TingAuthError,
+    TingConnectionError,
+    TingRateLimitError,
+    TingResponseError,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+_COGNITO_AUTH_ERRORS = {
+    "NotAuthorizedException",
+    "PasswordResetRequiredException",
+    "UserNotConfirmedException",
+    "UserNotFoundException",
+}
+_COGNITO_RATE_LIMIT_ERRORS = {"TooManyRequestsException", "LimitExceededException"}
 
 _N_HEX = (
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08"
@@ -244,17 +257,34 @@ class TingAuth:
         }
         try:
             async with self._session.post(COGNITO_ENDPOINT, headers=headers, json=payload) as response:
+                # Gateway errors may have an HTML or empty body. Classify their
+                # status before attempting to decode a Cognito JSON response.
+                if response.status == 429:
+                    raise TingRateLimitError("Cognito rate limit exceeded")
+                if response.status >= 500:
+                    raise TingConnectionError(f"Cognito returned HTTP {response.status}")
+                if response.status in (401, 403):
+                    raise TingAuthError(f"Cognito returned HTTP {response.status}")
                 data = await response.json(content_type=None)
-        except ClientError as err:
+        except (ClientError, TimeoutError) as err:
             raise TingConnectionError("Could not connect to Cognito") from err
         except (json.JSONDecodeError, ValueError) as err:
             raise TingResponseError("Cognito returned a non-JSON response") from err
 
+        if not isinstance(data, dict):
+            raise TingResponseError("Cognito response was not an object")
         if response.status >= 400:
-            message = data.get("message") or data.get("__type") or "Cognito authentication failed"
-            _LOGGER.warning("Cognito request %s failed: %s", target.rsplit(".", 1)[-1], message)
-            _LOGGER.debug("Cognito error response: %s", data)
-            raise TingAuthError(str(message))
+            error_type = data.get("__type", "")
+            error_type = error_type.rsplit("#", 1)[-1] if isinstance(error_type, str) else ""
+            message = str(
+                data.get("message") or error_type or f"Cognito returned HTTP {response.status}"
+            )
+            # Cognito uses HTTP 400 for both rejected credentials and throttling.
+            if error_type in _COGNITO_RATE_LIMIT_ERRORS:
+                raise TingRateLimitError(message)
+            if error_type in _COGNITO_AUTH_ERRORS:
+                raise TingAuthError(message)
+            raise TingResponseError(message)
         return data
 
     def _store_auth_result(

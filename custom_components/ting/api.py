@@ -12,7 +12,12 @@ from aiohttp import ClientError
 
 from .auth import TingAuth
 from .const import TING_API_BASE
-from .exceptions import TingConnectionError, TingResponseError
+from .exceptions import (
+    TingAuthError,
+    TingConnectionError,
+    TingRateLimitError,
+    TingResponseError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,8 +50,14 @@ class TingApi:
         }
         try:
             async with self._auth.session.get(url, headers=headers) as response:
+                if response.status in (401, 403):
+                    raise TingAuthError(f"Ting API returned HTTP {response.status}")
+                if response.status == 429:
+                    raise TingRateLimitError("Ting API rate limit exceeded")
+                if response.status >= 500:
+                    raise TingConnectionError(f"Ting API returned HTTP {response.status}")
                 text = await response.text()
-        except ClientError as err:
+        except (ClientError, TimeoutError) as err:
             raise TingConnectionError("Could not connect to Ting API") from err
 
         if response.status >= 400:
