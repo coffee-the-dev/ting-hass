@@ -26,3 +26,8 @@ ATTR_LAST_UPDATE = "last_update"
 # Ting sends about four realtime samples per second. Home Assistant's state
 # machine and recorder do not benefit from that display-oriented frequency.
 REALTIME_PUBLISH_INTERVAL = 5.0
+
+CONF_POLL_INTERVAL = "poll_interval"
+DEFAULT_POLL_INTERVAL = 5.0
+MIN_POLL_INTERVAL = 1.0
+MAX_POLL_INTERVAL = 3600.0

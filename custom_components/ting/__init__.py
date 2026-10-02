@@ -14,7 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TingApi, TingDevice, extract_devices
 from .auth import TingAuth
-from .const import CONF_REFRESH_TOKEN, DOMAIN, PLATFORMS
+from .const import CONF_POLL_INTERVAL, CONF_REFRESH_TOKEN, DOMAIN, PLATFORMS
 from .coordinator import TingProfileCoordinator, TingRealtimeCoordinator
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 
@@ -87,6 +87,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"ting_realtime_{serial}",
         )
 
+    # Reload when options change (e.g., poll interval)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
     return True
 
 
@@ -101,3 +104,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)

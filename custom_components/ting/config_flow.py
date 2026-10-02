@@ -14,7 +14,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TingApi, extract_devices
 from .auth import TingAuth
-from .const import CONF_REFRESH_TOKEN, DOMAIN
+from .const import (
+    CONF_REFRESH_TOKEN,
+    CONF_POLL_INTERVAL,
+    DEFAULT_POLL_INTERVAL,
+    DOMAIN,
+    MIN_POLL_INTERVAL,
+    MAX_POLL_INTERVAL,
+)
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +30,16 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
+    }
+)
+
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(
+            CONF_POLL_INTERVAL,
+            default=DEFAULT_POLL_INTERVAL,
+            description={"suggested_value": DEFAULT_POLL_INTERVAL},
+        ): vol.All(vol.Coerce(float), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)),
     }
 )
 
@@ -47,6 +64,11 @@ class TingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a Ting config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+        """Return the options flow."""
+        return TingOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, str] | None = None) -> config_entries.FlowResult:
         """Handle the initial step."""
@@ -114,5 +136,29 @@ class TingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+        )
+
+
+class TingOptionsFlow(config_entries.OptionsFlow):
+    """Options flow for Ting."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Manage the options."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, self.config_entry.options
+            ),
             errors=errors,
         )

@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import TingApi, TingDevice, extract_device_diagnostics
 from .auth import TingAuth
-from .const import REALTIME_PUBLISH_INTERVAL
+from .const import CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL, REALTIME_PUBLISH_INTERVAL
 from .exceptions import TingAuthError, TingConnectionError, TingResponseError
 from .signalr import TingSignalRClient
 from .throttle import LatestValueThrottle
@@ -36,8 +36,9 @@ class TingRealtimeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             callback=self._async_handle_update,
             stale_callback=self._async_handle_stale,
         )
+        poll_interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
         self._realtime_throttle = LatestValueThrottle(
-            REALTIME_PUBLISH_INTERVAL, self.async_set_updated_data
+            poll_interval, self.async_set_updated_data
         )
         # No data yet: leave entities unavailable until the stream delivers.
         self.last_update_success = False
